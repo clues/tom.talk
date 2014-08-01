@@ -1,0 +1,156 @@
+<!-- templates/message.html -->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <style type="text/css">
+          .msgbox {
+            height:200px;
+            padding:6px;
+            overflow-y:scroll;
+            word-break: break-all
+          }
+        </style>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <meta http-equiv="Content-Language" content="zh-CN"/>
+        <title>Tom.Talk <{{roomname}}></title>
+        <link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon" />
+        <link rel="stylesheet" href="/css/bootstrap.css">
+        <script language="javascript" type="text/javascript" src="/js/jquery-2.1.0.js"></script>
+        <script language="javascript" type="text/javascript" src="/js/json2.js"></script>
+        <script type="text/javascript" charset="utf-8">
+        myname ='{{ username }}';
+        req = '{{ req }}';
+        currentPage = true;
+        timerID = null;
+        $(document).ready(function(){
+                   
+            if ("WebSocket" in window) {
+                console.log("server addr: "+ "ws://" + window.location.host +req);
+                ws = new WebSocket("ws://" + window.location.host +req);
+                ws.onmessage = function (msg) {
+
+                    console.log("receive: "+ msg.data);
+                    data = JSON.parse(msg.data);
+                    var content =$(".msgbox").html();
+                    if (data.username == myname){
+                        content = content +"<font color='#c35a'>" +data.time 
+                        +" &lt;" +data.username +"&gt;:" +"</font>";
+                    }else if(data.username == "admin.tom"){
+                        content = content +"<font color='red'>" +data.time 
+                        +" &lt;admin-tom&gt;:" +"</font>";
+                    }else{
+                        content = content +data.time 
+                        +" &lt;"+ data.username +"&gt;:";
+                    }
+                    if (data.type=="GETROOM_OK"){
+                    	content += "<br>&nbsp&nbsp&nbsp&nbsp you can share this link for others<a href=http://"
+   								  + window.location.host+"/join?roomname=" + data.value
+   								  +"> http://" +window.location.host+"/join?roomname=" + data.value
+   								  +"</a><br/>";
+                    }else
+                    {
+                    	content += "<br>&nbsp&nbsp&nbsp&nbsp"+data.value +"<br/>";
+                    }
+                    if (!currentPage){
+                    	top.document.title = "[New Msg] "+data.value;
+                    	if (timerID == null){
+                    		startRoll();
+                    	}
+                    }
+                    $(".msgbox").html(content);
+                   
+                    mai = document.getElementById('msgbox');
+                    mai.scrollTop=mai.scrollHeight;
+                    //$(".msgbox").scrollTop($(".msgbox").height());                    
+                    
+                };
+
+                ws.onopen = function(evt){
+                    console.log("ws opened" + evt.reason);
+                }
+
+                ws.onerror = function(evt)
+                {
+                    console.log("ws error!")
+                }
+                ws.onclose = function (evt) {
+                    console.log('ws closed!!' + evt.code)
+                };
+            } else {
+                console.log("WebSocket not supported");
+            }
+
+            $('form').submit(function(event){
+                if (myname=='' || myname==undefined || $("#chat_content").val() == ''){
+                    return;
+                }
+                console.log("send: "+ $("#chat_content").val());
+                msg = $("#chat_content").val();
+                
+                ws.send(JSON.stringify({type:"CHATMSG",value:msg}));
+                $("#chat_content").val("");
+                return false;
+            });
+            
+			window.onblur = function(){
+			    currentPage =false;
+			}
+			window.onfocus = function(){
+				if (timerID != null){
+					stopRoll();
+				}
+				currentPage =true;
+			    top.document.title ="Tom.Talk <" + myname+">";
+			}              
+        });
+        
+		function startRoll()
+		{
+		    timerID = window.setInterval("newtext()", 500); //定时器 间隔500ms 调用一次 newtext()
+		}
+		
+		function stopRoll()
+		{
+		    window.clearInterval(timerID);
+		    timerID = null;
+		}
+		
+		function newtext()
+		{
+		    text = top.document.title;
+		    top.document.title=text.substring(1,text.length)+text.substring(0,1)
+		    text=top.document.title.substring(0,text.length)
+		}        
+        </script>
+    </head>
+    <body>
+        <div class="header container">
+            <h1>Tom.Talk</h1>
+            <ul class="tabs">
+                <li class="active">
+                    I'm: <a href="#">{{ username }}</a>
+                </li>
+            </ul>
+        </div>
+        <div class="container">
+            Websocket Chat Test (Please Use Latest Chrome | FireFox).
+            <form class="row" id="message_form">
+                <div class="span10">
+                    
+                    <div class="well align-center msgbox" id="msgbox">
+                    </div>
+
+                    <div class="well align-center">
+                        <input type="text" id="chat_content" class="input-medium search-query">
+                        <input type="submit" class="btn" value="Send">
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="footer container">
+            <p>
+                &Copyright by lino.chao@gmail.com
+            </p>
+        </div>
+    </body>
+</html>

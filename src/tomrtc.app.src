@@ -1,0 +1,15 @@
+{application, tomrtc,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  erlydtl,
+                  json,
+                  mochiweb
+                 ]},
+  {mod, { tomrtc_app, []}},
+  {env, []}
+ ]}.
