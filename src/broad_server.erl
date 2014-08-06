@@ -13,9 +13,11 @@
 -export([start_link/0,
 	    find_user_by_name/1,
 		find_host_by_name/1,
-		% find_all_user_by_room_name/1,
+		find_all_room/0,
+		find_room_by_room_id/1,
 	    register/3,
 	    join/3,
+		get_counter/0,
 		register_sync/3,
 		broadcast_to_all/2]).
 
@@ -31,15 +33,22 @@ find_host_by_name(UserName) ->
 register_sync(UserName,Pid,Channel) ->
 	gen_server:call(?MODULE,{register,UserName,Pid,Channel}).
 %%async
-register(UserName,Pid,Channel) ->
-	gen_server:cast(?MODULE,{register,UserName,Pid,Channel}).
+register({RoomName,UserName},Pid,Channel) ->
+	gen_server:cast(?MODULE,{register,{RoomName,UserName},Pid,Channel}).
 
 join(Info,Pid,Channel) ->
 	gen_server:cast(?MODULE,{join,Info,Pid,Channel}).
 
 broadcast_to_all(Msg,From) ->
 	gen_server:cast(?MODULE,{broadcast_to_all,Msg,From}).
+find_all_room() ->
+	gen_server:call(?MODULE,find_all_room).
 
+find_room_by_room_id(RoomId) ->
+	gen_server:call(?MODULE,{find_room_by_room_id,RoomId}).
+
+get_counter() ->
+	gen_server:call(?MODULE,get_counter).
 
 %% ====================================================================
 %% Behavioural functions 
@@ -59,7 +68,7 @@ broadcast_to_all(Msg,From) ->
 	Timeout :: non_neg_integer() | infinity.
 %% ====================================================================
 init([]) ->
-    {ok, #state{user_list=[],last_msg_queue=queue:new()}}.
+    {ok, #state{}}.
 
 
 %% handle_call/3
@@ -79,25 +88,17 @@ init([]) ->
 	Timeout :: non_neg_integer() | infinity,
 	Reason :: term().
 %% ====================================================================
-handle_call({find_by_name,UserName}, From, State) ->
-	Reply = find_by_name(UserName,State#state.user_list),
+handle_call(find_all_room, From, #state{room_list=RoomList}=State) ->
+    Reply = RoomList,
     {reply, Reply, State};
 
-handle_call({find_host_by_name,UserName}, From, State) ->
-	Reply = find_host_by_name(UserName,State#state.user_list),
+handle_call({find_room_by_room_id,RoomId}, From, #state{room_list=RoomList}=State) ->
+    Reply = find_room_by_room_id(RoomId,RoomList),
     {reply, Reply, State};
 
-handle_call({register,UserName,Pid,Channel}, From, State) ->
-	Result = proplists:get_value(UserName, State#state.user_list),
-	case Result of
-		undefined ->
-			MRef = erlang:monitor(process, Pid),
-			User = #user{username=UserName,pid=Pid,ref=MRef,channel=Channel},		
-			broadcast_to_all("===&lt;"++UserName ++"&gt; join in===",User),
-			{reply,ok,State#state{user_list=[]}};
-		_ ->
-			{reply, {error,user_exist}, State}
-	end;
+handle_call(Request, From, State) ->
+    Reply = State#state.counter,
+    {reply, Reply, State};
 
 handle_call(Request, From, State) ->
     Reply = ok,
@@ -116,43 +117,49 @@ handle_call(Request, From, State) ->
 	Timeout :: non_neg_integer() | infinity.
 %% ====================================================================
 
-handle_cast({join,{UserName,RoomName},Pid,Channel}, State) ->
-    UserList = find_all_user_by_room_name(RoomName,State#state.user_list),
-    if
-    	length(UserList) =< ?MAX_CONNECTION_ONE_ROOM ->
-    		gen_server:cast(?MODULE,{join_1,{UserName,RoomName},Pid,Channel});
-    	true ->
-			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,value="Opp,room full,please try later!",type="GETROOM"}),
-			Channel(FormatMsg),
-			exit(Pid,kill)    		
-    end,
-	{noreply,State};
-
-handle_cast({join_1,{UserName,RoomName},Pid,Channel}, State) ->
-	error_logger:info_msg("user <~p> want join room <~p> ~n",[UserName,RoomName]),
-	Result = find_host_by_name(RoomName, State#state.user_list),
-	case Result of
+handle_cast({join,{UserName,RoomId},Pid,Channel}, State) ->
+	Room = find_room_by_room_id(RoomId,State#state.room_list),
+	case Room of
 		not_found ->
 			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
-											  value="There is no room &lt;"++ RoomName ++"&gt,please try other!",
+											  value="There is no room &lt;"
+											  ++ RoomId 
+											  ++"&gt,please try other!",
 											  type="GETROOM"}),
 			Channel(FormatMsg),
 			exit(Pid,kill),		
-			{noreply, State};		
+			{noreply, State};	
 		_ ->
-			MRef = erlang:monitor(process, Pid),
-			User = #user{username=UserName,pid=Pid,ref=MRef,channel=Channel,room_name=RoomName},
-			
-			broadcast_to_all("===&lt;"++UserName ++"&gt; join in===",User#user{username=?ADMIN_NAME}),
-			% lists:foreach(fun(BinMsg)->Channel(BinMsg) end,queue:to_list(State#state.last_msg_queue)),
-			{noreply,State#state{user_list=[User|State#state.user_list]}}
-	end;
+			Users =find_all_user_by_room_id(RoomId,State#state.user_list),
+		    if
+		    	length(Users) =< ?MAX_CONNECTION_ONE_ROOM ->
+		    		gen_server:cast(?MODULE,{join_1,{UserName,Room},Pid,Channel});
+		    	true ->
+					FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,value="Opp,room full,please try later!",type="GETROOM"}),
+					Channel(FormatMsg),
+					exit(Pid,kill)    		
+		    end
+	end,
+	{noreply,State};
 
-handle_cast({register,UserName,Pid,Channel}, State) ->
-	RoomList = find_all_room(State#state.user_list),
+handle_cast({join_1,{UserName,Room},Pid,Channel}, State) ->
+	error_logger:info_msg("user <~p> want join room <~p> ~n",[UserName,Room#room.name]),
+	
+	UserId = tomrtc:base64UUID(),
+
+	MRef = erlang:monitor(process, Pid),
+	User = #user{id=UserId,name=UserName,pid=Pid,ref=MRef,channel=Channel,room_id=Room#room.id},
+	
+	gen_server:cast(?MODULE, {broadcast_to_all,#msg{type=?MSG_TYPE_INOUT,
+						  value="===&lt;"++UserName ++"&gt; join in==="},
+							  User#user{name=?ADMIN_NAME}}),
+	lists:foreach(fun(BinMsg)->Channel(BinMsg) end,queue:to_list(Room#room.last_mq)),
+	{noreply,State#state{user_list=[User|State#state.user_list],counter=State#state.counter+1}};
+
+handle_cast({register,{RoomName,UserName},Pid,Channel}, State) ->
 	if
-		length(RoomList) =< ?MAX_ROOM_NUM ->
-			gen_server:cast(?MODULE,{register_1,UserName,Pid,Channel});
+		length(State#state.room_list) =< ?MAX_ROOM_NUM ->
+			gen_server:cast(?MODULE,{register_1,{RoomName,UserName},Pid,Channel});
 		true ->
 			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
 											  value="Opp,no room allocate,please try later!",
@@ -162,50 +169,56 @@ handle_cast({register,UserName,Pid,Channel}, State) ->
 	end,
 	{noreply,State};
 
-handle_cast({register_1,UserName,Pid,Channel}, State) ->
-	error_logger:info_msg("user <~p> want register pid <~p>~n",[UserName,Pid]),
-	Result = find_host_by_name(UserName, State#state.user_list),
-	case Result of
-		not_found ->
-			MRef = erlang:monitor(process, Pid),
-			User = #user{username=UserName,pid=Pid,ref=MRef,channel=Channel,host=true,room_name=UserName},
-			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
-											  value=UserName,
+handle_cast({register_1,{RoomName,UserName},Pid,Channel}, #state{counter=Counter,
+																 room_list=RoomList,
+																 user_list=UserList}=State) ->
+	error_logger:info_msg(" user:<~p> want create room: <~p>~n",[UserName,RoomName]),
+	
+	RoomId = tomrtc:base64UUID(),
+	UserId = tomrtc:base64UUID(),
+	MRef = erlang:monitor(process, Pid),
+	User = #user{id= UserId,
+				 name=UserName,
+				 pid=Pid,
+				 ref=MRef,
+				 channel=Channel,
+				 host=true,
+				 room_id=RoomId},
+	
+	FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
+											  value=RoomId,
 											  type="GETROOM_OK"}),
-			Channel(FormatMsg),				
-			{noreply,State#state{user_list=[User|State#state.user_list]}};
-		_ ->
-			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
-											  value="username &lt;"++ UserName ++"&gt; already be used,<br>please use other name to login!",
-											  type="GETROOM_ERR"}),
-			Channel(FormatMsg),
-			exit(Pid,kill),		
-			{noreply, State}
-	end;
+
+	Room = #room{name=RoomName,id=RoomId},
+	Channel(FormatMsg),		
+	{noreply,State#state{counter=Counter+1,room_list=[Room|RoomList],user_list=[User|UserList]}};
 
 handle_cast({broadcast_to_all,Msg,Pid},State) when is_pid(Pid)->
-	FromUser = find_by_pid(Pid,State#state.user_list),
-	broadcast_to_all(Msg,FromUser),
+	FromUser = find_user_by_pid(Pid,State#state.user_list),
+	broadcast_to_all(#msg{value=Msg},FromUser),
 	{noreply,State};
 
 handle_cast({broadcast_to_all,Msg,FromUser},State) when FromUser =/= 'not_found'->
 	%%error_logger:info_msg(" user:~p will broad msg: ~p~n",[FromUser#user.username,Msg]),
-    FormatMsg = format_stand_msg(#msg{username=FromUser#user.username,
-									  value=Msg,
-									  type="CHATMSG"}),	
-	RoomUserList = find_all_user_by_room_name(FromUser#user.room_name,State#state.user_list),
-	ok=lists:foreach(fun(#user{channel=Channel}) ->
-		Channel(FormatMsg) end,RoomUserList),
-	% CurrentMsgBoxLen = queue:len(State#state.last_msg_queue),
-	% LastMsgQueue = if
-	% 	CurrentMsgBoxLen >= ?MAX_LAST_MSG_LEN ->
-	% 		{_,NewQ}=queue:out(State#state.last_msg_queue),
-	% 		NewQ;
-	% 	true ->
-	% 		State#state.last_msg_queue
-	% 	end,
-	% NewMsgQueue = queue:in(FormatMsg,LastMsgQueue),
-	{noreply,State};
+    FormatMsg = format_stand_msg(Msg#msg{username=FromUser#user.name}),
+	Room = find_room_by_room_id(FromUser#user.room_id,State#state.room_list),
+	case Room of
+		not_found ->
+			{noreply,State};
+		_ ->
+			
+			Users =find_all_user_by_room_id(Room#room.id,State#state.user_list),
+			ok=lists:foreach(fun(#user{channel=Channel}) ->
+				Channel(FormatMsg) end,Users),
+			UpdatedRoom =case Msg#msg.type of
+				?MSG_TYPE_CHAT ->
+					put_msg_to_mq(FormatMsg,Room);
+				_ ->
+					Room
+			end,
+			RoomList =lists:keyreplace(Room#room.id,2,State#state.room_list,UpdatedRoom),
+			{noreply,State#state{room_list=RoomList}}
+	end;
 
 handle_cast(Msg, State) ->
     {noreply, State}.
@@ -225,14 +238,24 @@ handle_cast(Msg, State) ->
 %% user crash or exit
 handle_info({'DOWN', MRef, process, Pid, _Reason},State) ->
 	error_logger:info_msg("receive : ~p crash with reason ~p~n",[Pid,_Reason]),
-	case find_by_ref(MRef,State#state.user_list) of
+	case find_user_by_ref(MRef,State#state.user_list) of
 		not_found ->
 			{noreply, State};
 		User ->
-			error_logger:info_msg("user: ~p exit with reason ~p~n",[User#user.username,_Reason]),
-			NewUserList = delete_by_ref(User#user.ref,State#state.user_list),
-			broadcast_to_all("===&lt;"++ User#user.username ++"&gt; sign out==",User#user{username=?ADMIN_NAME}),
-    		{noreply, State#state{user_list=NewUserList}}
+			error_logger:info_msg("user: ~p exit with reason ~p~n",[User#user.name,_Reason]),
+			NewUserList = delete_user_by_ref(User#user.ref,State#state.user_list),
+			
+			% if room no user,the room will be clear
+			UserList =find_all_user_by_room_id(User#user.room_id,NewUserList),
+			NewRoomList =case UserList of
+				[] ->
+					delete_room_by_room_id(User#user.room_id,State#state.room_list);
+				_ ->
+				    State#state.room_list
+			end,
+			broadcast_to_all(#msg{value="===&lt;"++ User#user.name ++"&gt; sign out==",
+								  type=?MSG_TYPE_INOUT},User#user{name=?ADMIN_NAME}),
+    		{noreply, State#state{user_list=NewUserList,room_list=NewRoomList}}
     end;
 
 handle_info(Info, State) ->
@@ -268,71 +291,67 @@ code_change(OldVsn, State, Extra) ->
 %% Internal functions
 %% ====================================================================
 
-find_by_pid(_,[]) ->
+find_user_by_ref(_,[]) ->
 	not_found;
-find_by_pid(Pid,[#user{pid=Pid}=User|T]) ->
+find_user_by_ref(Mref,[#user{ref=Mref}=User|T]) ->
 	User;
-find_by_pid(Pid,[_|T]) ->
-	find_by_pid(Pid,T).
+find_user_by_ref(Mref,[_|T]) ->
+	find_user_by_ref(Mref,T).
 
-find_by_ref(_,[]) ->
+
+find_host_by_room_id(_,[]) ->
 	not_found;
-find_by_ref(Mref,[#user{ref=Mref}=User|T]) ->
+find_host_by_room_id(RoomId,[#user{room_id=RoomId,host=true}=User|T]) ->
 	User;
-find_by_ref(Mref,[_|T]) ->
-	find_by_ref(Mref,T).
+find_host_by_room_id(RoomId,[_|T]) ->
+	find_host_by_room_id(RoomId,T).
 
-
-find_host_by_name(_,[]) ->
+find_room_by_room_id(RoomId,[]) ->
 	not_found;
-find_host_by_name(UserName,[#user{username=UserName,host=true}=User|T]) ->
-	User;
-find_host_by_name(UserName,[_|T]) ->
-	find_host_by_name(UserName,T).
+find_room_by_room_id(RoomId,[#room{id=RoomId}=Room|T]) ->
+	Room;
+find_room_by_room_id(RoomId,[H|T]) ->
+	find_room_by_room_id(RoomId,T).
 
-find_all_room(UserList) ->
-	find_all_room(UserList,[]).
-find_all_room([],R) ->
+find_user_by_id(_,[]) ->
+	not_found;
+find_user_by_id(UserId,[#user{id=UserId}=User|T]) ->
+	User;
+find_user_by_id(UserId,[_|T]) ->
+	find_user_by_id(UserId,T).
+
+find_user_by_pid(_,[]) ->
+	not_found;
+find_user_by_pid(Pid,[#user{pid=Pid}=User|T]) ->
+	User;
+find_user_by_pid(Pid,[_|T]) ->
+	find_user_by_pid(Pid,T).
+
+find_all_user_by_room_id(RoomId,UserList) ->
+	find_all_user_by_room_id(RoomId,UserList,[]).
+
+find_all_user_by_room_id(RoomId,[],R) ->
 	R;
-find_all_room([#user{host=true}=User|T],R) ->
-	find_all_room(T,[User|R]);
-find_all_room([User|T],R) ->
-	find_all_room(T,R).	
+find_all_user_by_room_id(RoomId,[#user{room_id=RoomId}=User|T],R) ->
+	find_all_user_by_room_id(RoomId,T,[User|R]);
+find_all_user_by_room_id(RoomId,[User|T],R) ->
+	find_all_user_by_room_id(RoomId,T,R).
 
-find_by_name(_,[]) ->
-	not_found;
-find_by_name(UserName,[#user{username=UserName}=User|T]) ->
-	User;
-find_by_name(UserName,[_|T]) ->
-	find_by_name(UserName,T).
+delete_room_by_room_id(RoomId,[]) ->
+	[];
+delete_room_by_room_id(RoomId,[#room{id=RoomId}|T]) ->
+	T;
+delete_room_by_room_id(RoomId,[H|T]) ->
+	delete_room_by_room_id(RoomId,T).
 
-find_all_user_by_room_name(RoomName,UserList) ->
-	find_all_user_by_room_name(RoomName,UserList,[]).
-
-find_all_user_by_room_name(RoomName,[],R) ->
-	R;
-find_all_user_by_room_name(RoomName,[#user{room_name=RoomName}=User|T],R) ->
-	find_all_user_by_room_name(RoomName,T,[User|R]);
-find_all_user_by_room_name(RoomName,[User|T],R) ->
-	find_all_user_by_room_name(RoomName,T,R).
-
-delete_by_name(UserName,UserList) ->
-	delete_by_name(UserName,UserList,[]).
-delete_by_name(UserName,[],DestList) ->
+delete_user_by_ref(Mref,UserList) ->
+	delete_user_by_ref(Mref,UserList,[]).
+delete_user_by_ref(Mref,[],DestList) ->
 	DestList;
-delete_by_name(UserName,[#user{username=UserName}=User|T],DestList) ->
-	delete_by_name(UserName,T,DestList);
-delete_by_name(UserName,[User|T],DestList) ->
-	delete_by_name(UserName,T,[User|DestList]).
-
-delete_by_ref(Mref,UserList) ->
-	delete_by_ref(Mref,UserList,[]).
-delete_by_ref(Mref,[],DestList) ->
-	DestList;
-delete_by_ref(Mref,[#user{ref=Mref}=User|T],DestList) ->
-	delete_by_ref(Mref,T,DestList);
-delete_by_ref(Mref,[User|T],DestList) ->
-	delete_by_ref(Mref,T,[User|DestList]).
+delete_user_by_ref(Mref,[#user{ref=Mref}=User|T],DestList) ->
+	delete_user_by_ref(Mref,T,DestList);
+delete_user_by_ref(Mref,[User|T],DestList) ->
+	delete_user_by_ref(Mref,T,[User|DestList]).
 
 format_stand_msg(Msg) ->
 	{_,{H, M, S}} =  calendar:now_to_local_time(erlang:now()),
@@ -340,3 +359,16 @@ format_stand_msg(Msg) ->
 						  integer_to_list(H),"-",
 						  integer_to_list(M),"-",
 						  integer_to_list(S),"\"}"]).
+
+put_msg_to_mq(FormatMsg,Room) ->
+	MQ =Room#room.last_mq,
+	CurrentMsgBoxLen = queue:len(MQ),
+	LastMsgQueue = if
+		CurrentMsgBoxLen >= ?MAX_LAST_MSG_LEN ->
+			{_,NewQ}=queue:out(MQ),
+			NewQ;
+		true ->
+			MQ
+		end,
+	NewMq =queue:in(FormatMsg,LastMsgQueue),
+	Room#room{last_mq=NewMq}.

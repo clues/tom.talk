@@ -1,7 +1,7 @@
 -module(greeting_views).
 -compile(export_all).
 -import(greeting_shortcuts, [render_ok/3, render_ok/4, get_cookie_value/3]).
-
+-include("tomrtc.hrl").
 urls() -> [
       {"^hello/?$", hello},
       {"^hello/(.+?)/?$", hello},
@@ -34,20 +34,34 @@ hello('POST', Req, _) ->
   hello('POST', Req).
 
 create('POST',Req) ->
-	Username = proplists:get_value("username", Req:parse_post()),
-	case broad_server:find_host_by_name(Username) of
-		not_found ->
-			render_ok(Req,[],chat_dtl,[{username,Username},{req,"/reg/" ++ Username},{roomname,Username}]);
-		_ ->
-			render_ok(Req,[],error_dtl,[{msg,"User name '"++Username++"' have been used,please try other!"}])
+	RoomName = proplists:get_value("roomname", Req:parse_post()),
+	UserName = proplists:get_value("username", Req:parse_post()),
+	  GuestName =case UserName of
+		  undefined ->
+			  "Host"++integer_to_list(broad_server:get_counter());
+		  _ ->
+			UserName
+	  end,	
+	RoomList = broad_server:find_all_room(),
+	if
+		length(RoomList)  < ?MAX_ROOM_NUM ->
+			render_ok(Req,[],chat_dtl,[{username,GuestName},{req,"/reg/" ++ RoomName ++ "/" ++ GuestName},{roomname,RoomName}]);
+		true ->
+			render_ok(Req,[],error_dtl,[{msg,"No enough room allocate!!"}])
 	end.
 
 join('GET',Req) ->
-  RoomName = proplists:get_value("roomname", Req:parse_qs()),
-  case broad_server:find_host_by_name(RoomName) of
+  RoomId = proplists:get_value("roomid", Req:parse_qs()),
+  UserName = proplists:get_value("username", Req:parse_qs()),
+  GuestName =case UserName of
+	  undefined ->
+		  "Guest"++integer_to_list(broad_server:get_counter());
+	  _ ->
+		UserName
+  end,
+  case broad_server:find_room_by_room_id(RoomId) of
     not_found ->
-      render_ok(Req,[],error_dtl,[{msg,"User room: '"++RoomName++"' not found!"}]);
-    _ ->
-      GuestName = integer_to_list(random:uniform(9999)),
-      render_ok(Req,[],chat_dtl,[{username,GuestName},{req,"/join/" ++RoomName++"/"++ GuestName},{roomname,RoomName}])
+      render_ok(Req,[],error_dtl,[{msg,"User room: '"++RoomId++"' not found!"}]);
+    Room ->
+      render_ok(Req,[],chat_dtl,[{username,GuestName},{req,"/join/" ++RoomId++"/"++ GuestName},{roomname,Room#room.name}])
   end.

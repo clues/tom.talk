@@ -36,14 +36,21 @@ loop(Req,Broadcaster,true) ->
     {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(
                                   Req, fun ws_loop/3),
 	case Req:get(path) of
-        "/reg/" ++ UserName ->
-            broad_server:register(UserName,self(),ReplyChannel);
-        Param ->
-            M = re:run(Param, "^/join/(.+?)/(.+?)/?$", [global, {capture, all_but_first, list}]),
-            error_logger:info_msg("~p -- req error:~p~n",[?MODULE,M]),
+        "/reg" ++ Rest ->
+            M = re:run(Rest, "^/(.+?)/(.+?)/?$", [global, {capture, all_but_first, list}]),
+            error_logger:info_msg("~p --~p req error:~p~n",[?MODULE,?LINE,M]),
             case M of
                 {match,[[RoomName,UserName]]} ->
-                    broad_server:join({UserName,RoomName},self(),ReplyChannel);
+                    broad_server:register({RoomName,UserName},self(),ReplyChannel);
+                _ ->
+                    ok
+            end;
+        "/join" ++ Rest ->
+            M = re:run(Rest, "^/(.+?)/(.+?)/?$", [global, {capture, all_but_first, list}]),
+            error_logger:info_msg("~p --~p req error:~p~n",[?MODULE,?LINE,M]),
+            case M of
+                {match,[[RoomId,UserName]]} ->
+                    broad_server:join({UserName,RoomId},self(),ReplyChannel);
                 _ ->
                     ok
             end
@@ -106,3 +113,22 @@ ws_loop(Payload, Broadcaster, _ReplyChannel) ->
 			 ignored
 	end,
     Broadcaster.
+
+to_hex([]) ->
+    [];
+to_hex(Bin) when is_binary(Bin) ->
+    to_hex(binary_to_list(Bin));
+to_hex([H|T]) ->
+    [to_digit(H div 16), to_digit(H rem 16) | to_hex(T)].
+
+to_digit(N) when N < 10 -> $0 + N;
+to_digit(N)             -> $a + N-10.
+
+base64UUID() ->
+	Now = {_, _, Micro} = now(),
+	Nowish = calendar:now_to_universal_time(Now),
+	Nowsecs = calendar:datetime_to_gregorian_seconds(Nowish),
+	Then = calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
+	Prefix = io_lib:format("~14.16.0b", [(Nowsecs - Then) * 1000000 + Micro]),
+	U=list_to_binary(to_hex(crypto:rand_bytes(9))),
+    base64:encode_to_string(U).

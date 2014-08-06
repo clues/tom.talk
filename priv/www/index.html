@@ -13,9 +13,14 @@
         		Websocket Chat Test (Please Use Latest Chrome | FireFox).
 
         	</div>
-                <div class="span10">
+        	   <p/><p/><p/>
+                <div class="span10 controls">
                 	<form class="row" id="message_form" method="post">
-                        <input type="text" name="username" class="input-medium search-query">
+                        <label class="controls-label">Room Name</label>
+                        <input type="text" name="roomname" class="input-medium ">
+                        <label class="controls-label">User Name</label>
+                        <input type="text" name="username" class="input-medium ">(optional)
+                        <label class="controls-label"></label>
                         <input type="submit" class="btn btn-primary" value="New Room">
                 	</form>
                 </div>
@@ -29,7 +34,7 @@
 	  	<script language="javascript" type="text/javascript">
 	  		var currentPage = true;
 	  		$(".btn").click(function(){
-	  			if($(".input-medium").val() == ""){
+	  			if($(".input-medium").eq(0).val() == ""){
 	  				return false;
 	  			}else{
 	  				$("form").attr("action","/create/");	

@@ -12,7 +12,7 @@
         </style>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
         <meta http-equiv="Content-Language" content="zh-CN"/>
-        <title>Tom.Talk <{{roomname}}></title>
+        <title>Tom.Talk</title>
         <link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon" />
         <link rel="stylesheet" href="/css/bootstrap.css">
         <script language="javascript" type="text/javascript" src="/js/jquery-2.1.0.js"></script>
@@ -20,6 +20,7 @@
         <script type="text/javascript" charset="utf-8">
         myname ='{{ username }}';
         req = '{{ req }}';
+        roomname ='{{roomname}}';
         currentPage = true;
         timerID = null;
         $(document).ready(function(){
@@ -44,8 +45,8 @@
                     }
                     if (data.type=="GETROOM_OK"){
                     	content += "<br>&nbsp&nbsp&nbsp&nbsp you can share this link for others<a href=http://"
-   								  + window.location.host+"/join?roomname=" + data.value
-   								  +"> http://" +window.location.host+"/join?roomname=" + data.value
+   								  + window.location.host+"/join?roomid=" + data.value
+   								  +"> http://" +window.location.host+"/join?roomid=" + data.value
    								  +"</a><br/>";
                     }else
                     {
@@ -100,7 +101,7 @@
 					stopRoll();
 				}
 				currentPage =true;
-			    top.document.title ="Tom.Talk <" + myname+">";
+			    top.document.title ="Tom.Talk ";
 			}              
         });
         
@@ -130,6 +131,9 @@
                 <li class="active">
                     I'm: <a href="#">{{ username }}</a>
                 </li>
+                <li >
+                    Room: <a href="#">{{ roomname }}</a>
+                </li>                
             </ul>
         </div>
         <div class="container">
