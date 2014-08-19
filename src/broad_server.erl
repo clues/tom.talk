@@ -17,6 +17,9 @@
 		find_room_by_room_id/1,
 	    register/3,
 	    join/3,
+		offer/2,
+		offer/3,
+		candidate/2,
 		get_counter/0,
 		register_sync/3,
 		broadcast_to_all/2]).
@@ -49,6 +52,21 @@ find_room_by_room_id(RoomId) ->
 
 get_counter() ->
 	gen_server:call(?MODULE,get_counter).
+
+offer(Sdp,From) ->
+	offer(Sdp,From,undefined).
+
+offer(Sdp,From,To) ->
+	gen_server:cast(?MODULE,{offer,Sdp,{From,To}}).
+
+answer(Sdp,From) ->
+	answer(Sdp,From,undefined).
+
+answer(Sdp,From,To) ->
+	gen_server:cast(?MODULE,{answer,Sdp,{From,To}}).
+
+candidate(Msg,From) ->
+	gen_server:cast(?MODULE,{candidate,Msg,From}).
 
 %% ====================================================================
 %% Behavioural functions 
@@ -116,6 +134,49 @@ handle_call(Request, From, State) ->
 	NewState :: term(),
 	Timeout :: non_neg_integer() | infinity.
 %% ====================================================================
+handle_cast({candidate,{Id,Label,Candidate},FromPid}, State) ->
+	error_logger:info_msg("~p -- candidate: ~p label:~p~n",[?MODULE,Candidate,Label]),
+	FromUser =find_user_by_pid(FromPid,State#state.user_list),
+	AllUsers= find_all_user_by_room_id(FromUser#user.room_id,State#state.user_list),
+
+	FormatMsg = iolist_to_binary(["{\"type\":\"",?SIG_TYPE_CANDIDATE,
+								  "\",\"id\":\"",Id,
+								  "\",\"label\":\"",Label,
+								  "\",\"candidate\":\"",Candidate,
+								  "\"}"]),
+	lists:foreach(fun(#user{channel=Channel}) ->
+						 Channel(FormatMsg) end , AllUsers),
+	{noreply,State};
+
+handle_cast({answer,Sdp,{FromPid,undefined}}, State) ->
+	FromUser =find_user_by_pid(FromPid,State#state.user_list),
+	AllUsers= find_all_user_by_room_id(FromUser#user.room_id,State#state.user_list),
+	RestUsers = AllUsers -- [FromUser],
+	case RestUsers of
+		[] ->
+			ignored;
+		[#user{channel=Channel}|R] ->
+			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
+											  value=Sdp,
+											  type=?SIG_TYPE_OFFER}),
+			Channel(FormatMsg)
+	end,
+	{noreply,State};
+
+handle_cast({offer,Sdp,{FromPid,undefined}}, State) ->
+	FromUser =find_user_by_pid(FromPid,State#state.user_list),
+	AllUsers= find_all_user_by_room_id(FromUser#user.room_id,State#state.user_list),
+	RestUsers = AllUsers -- [FromUser],
+	case RestUsers of
+		[] ->
+			ignored;
+		[#user{channel=Channel}|R] ->
+			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
+											  value=Sdp,
+											  type=?SIG_TYPE_OFFER}),
+			Channel(FormatMsg)
+	end,
+	{noreply,State};
 
 handle_cast({join,{UserName,RoomId},Pid,Channel}, State) ->
 	Room = find_room_by_room_id(RoomId,State#state.room_list),
@@ -125,7 +186,7 @@ handle_cast({join,{UserName,RoomId},Pid,Channel}, State) ->
 											  value="There is no room &lt;"
 											  ++ RoomId 
 											  ++"&gt,please try other!",
-											  type="GETROOM"}),
+											  type=?SIG_TYPE_JOINROOM_ERR}),
 			Channel(FormatMsg),
 			exit(Pid,kill),		
 			{noreply, State};	
@@ -135,7 +196,7 @@ handle_cast({join,{UserName,RoomId},Pid,Channel}, State) ->
 		    	length(Users) =< ?MAX_CONNECTION_ONE_ROOM ->
 		    		gen_server:cast(?MODULE,{join_1,{UserName,Room},Pid,Channel});
 		    	true ->
-					FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,value="Opp,room full,please try later!",type="GETROOM"}),
+					FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,value="Opp,room full,please try later!",type=?SIG_TYPE_JOINROOM_ERR}),
 					Channel(FormatMsg),
 					exit(Pid,kill)    		
 		    end
@@ -150,7 +211,7 @@ handle_cast({join_1,{UserName,Room},Pid,Channel}, State) ->
 	MRef = erlang:monitor(process, Pid),
 	User = #user{id=UserId,name=UserName,pid=Pid,ref=MRef,channel=Channel,room_id=Room#room.id},
 	
-	gen_server:cast(?MODULE, {broadcast_to_all,#msg{type=?MSG_TYPE_INOUT,
+	gen_server:cast(?MODULE, {broadcast_to_all,#msg{type=?SIG_TYPE_INOUT,
 						  value="===&lt;"++UserName ++"&gt; join in==="},
 							  User#user{name=?ADMIN_NAME}}),
 	lists:foreach(fun(BinMsg)->Channel(BinMsg) end,queue:to_list(Room#room.last_mq)),
@@ -163,7 +224,7 @@ handle_cast({register,{RoomName,UserName},Pid,Channel}, State) ->
 		true ->
 			FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
 											  value="Opp,no room allocate,please try later!",
-											  type="GETROOM_ERR"}),
+											  type=?SIG_TYPE_GETROOM_ERR}),
 			Channel(FormatMsg),
 			exit(Pid,kill)	
 	end,
@@ -187,7 +248,7 @@ handle_cast({register_1,{RoomName,UserName},Pid,Channel}, #state{counter=Counter
 	
 	FormatMsg = format_stand_msg(#msg{username=?ADMIN_NAME,
 											  value=RoomId,
-											  type="GETROOM_OK"}),
+											  type=?SIG_TYPE_GETROOM_OK}),
 
 	Room = #room{name=RoomName,id=RoomId},
 	Channel(FormatMsg),		
@@ -211,7 +272,7 @@ handle_cast({broadcast_to_all,Msg,FromUser},State) when FromUser =/= 'not_found'
 			ok=lists:foreach(fun(#user{channel=Channel}) ->
 				Channel(FormatMsg) end,Users),
 			UpdatedRoom =case Msg#msg.type of
-				?MSG_TYPE_CHAT ->
+				?SIG_TYPE_CHAT ->
 					put_msg_to_mq(FormatMsg,Room);
 				_ ->
 					Room
@@ -254,7 +315,7 @@ handle_info({'DOWN', MRef, process, Pid, _Reason},State) ->
 				    State#state.room_list
 			end,
 			broadcast_to_all(#msg{value="===&lt;"++ User#user.name ++"&gt; sign out==",
-								  type=?MSG_TYPE_INOUT},User#user{name=?ADMIN_NAME}),
+								  type=?SIG_TYPE_INOUT},User#user{name=?ADMIN_NAME}),
     		{noreply, State#state{user_list=NewUserList,room_list=NewRoomList}}
     end;
 

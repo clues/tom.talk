@@ -104,13 +104,29 @@ dispatch(Req, [{Regexp, Function}|T]) ->
 
 
 ws_loop(Payload, Broadcaster, _ReplyChannel) ->
+	error_logger:info_msg("~p -- raw: ~p~n",[?MODULE,Payload]),
     Received = list_to_binary(Payload),
-	JSON = json:decode(Received),
-	case JSON of
-		 {ok,{[{<<"type">>,<<"CHATMSG">>}, {<<"value">>, Value} ]}} ->
-			 broad_server:broadcast_to_all(Value,self());
-		 _ ->
-			 ignored
+	
+	case json:decode(Received) of
+		{ok,{BinPropList}} ->
+			BType = proplists:get_value(<<"type">>, BinPropList),
+			case BType of
+				 <<?SIG_TYPE_CHAT>> ->
+					 broad_server:broadcast_to_all(proplists:get_value(<<"value">>, BinPropList),self());
+				 <<?SIG_TYPE_OFFER>> ->
+					 broad_server:offer(proplists:get_value(<<"sdp">>, BinPropList),self());
+				 <<?SIG_TYPE_CANDIDATE>> ->
+					 broad_server:candidate({proplists:get_value(<<"id">>, BinPropList),
+											 proplists:get_value(<<"label">>, BinPropList),
+											 proplists:get_value(<<"candidate">>, BinPropList)},self());		
+				 <<?SIG_TYPE_ANSWER>> ->
+					 broad_server:answer(proplists:get_value(<<"sdp">>, BinPropList),self());			
+				 WahtType ->
+					 error_logger:info_msg("~p --receive client msg: ~p~n",[?MODULE,WahtType]),
+					 broad_server:broadcast_to_all(proplists:get_value(<<"value">>, BinPropList),self())
+			end;
+		_ ->
+			ignored
 	end,
     Broadcaster.
 

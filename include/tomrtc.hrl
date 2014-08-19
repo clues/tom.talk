@@ -12,6 +12,14 @@
 -record(room,{id,name,last_mq=queue:new(),pwd}).
 
 
--define(MSG_TYPE_CHAT,"CHATMSG").
--define(MSG_TYPE_INOUT,"INOUTMSG").
--record(msg,{type=?MSG_TYPE_CHAT,time,username,value}).
+-define(SIG_TYPE_GETROOM_OK,"get_room_ok").
+-define(SIG_TYPE_GETROOM_ERR,"get_room_err").
+-define(SIG_TYPE_JOINROOM_OK,"join_room_ok").
+-define(SIG_TYPE_JOINROOM_ERR,"join_room_err").
+-define(SIG_TYPE_CHAT,"chat").
+-define(SIG_TYPE_INOUT,"inout").
+-define(SIG_TYPE_OFFER,"offer").
+-define(SIG_TYPE_ANSWER,"answer").
+-define(SIG_TYPE_CANDIDATE,"candidate").
+-define(SIG_TYPE_BYE,"bye").
+-record(msg,{type=?SIG_TYPE_CHAT,time,username,value}).

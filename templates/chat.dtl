@@ -4,7 +4,7 @@
     <head>
         <style type="text/css">
           .msgbox {
-            height:200px;
+            height:100px;
             padding:6px;
             overflow-y:scroll;
             word-break: break-all
@@ -17,78 +17,67 @@
         <link rel="stylesheet" href="/css/bootstrap.css">
         <script language="javascript" type="text/javascript" src="/js/jquery-2.1.0.js"></script>
         <script language="javascript" type="text/javascript" src="/js/json2.js"></script>
+        <script language="javascript" type="text/javascript" src="/js/rtc.js"></script>
         <script type="text/javascript" charset="utf-8">
         myname ='{{ username }}';
         req = '{{ req }}';
         roomname ='{{roomname}}';
         currentPage = true;
         timerID = null;
-        $(document).ready(function(){
-                   
-            if ("WebSocket" in window) {
-                console.log("server addr: "+ "ws://" + window.location.host +req);
-                ws = new WebSocket("ws://" + window.location.host +req);
-                ws.onmessage = function (msg) {
-
-                    console.log("receive: "+ msg.data);
-                    data = JSON.parse(msg.data);
-                    var content =$(".msgbox").html();
-                    if (data.username == myname){
-                        content = content +"<font color='#c35a'>" +data.time 
-                        +" &lt;" +data.username +"&gt;:" +"</font>";
-                    }else if(data.username == "admin.tom"){
-                        content = content +"<font color='red'>" +data.time 
-                        +" &lt;admin-tom&gt;:" +"</font>";
-                    }else{
-                        content = content +data.time 
-                        +" &lt;"+ data.username +"&gt;:";
-                    }
-                    if (data.type=="GETROOM_OK"){
-                    	content += "<br>&nbsp&nbsp&nbsp&nbsp you can share this link for others<a href=http://"
-   								  + window.location.host+"/join?roomid=" + data.value
-   								  +"> http://" +window.location.host+"/join?roomid=" + data.value
-   								  +"</a><br/>";
-                    }else
-                    {
-                    	content += "<br>&nbsp&nbsp&nbsp&nbsp"+data.value +"<br/>";
-                    }
-                    if (!currentPage){
-                    	top.document.title = "[New Msg] "+data.value;
-                    	if (timerID == null){
-                    		startRoll();
-                    	}
-                    }
-                    $(".msgbox").html(content);
-                   
-                    mai = document.getElementById('msgbox');
-                    mai.scrollTop=mai.scrollHeight;
-                    //$(".msgbox").scrollTop($(".msgbox").height());                    
-                    
-                };
-
-                ws.onopen = function(evt){
-                    console.log("ws opened" + evt.reason);
-                }
-
-                ws.onerror = function(evt)
-                {
-                    console.log("ws error!")
-                }
-                ws.onclose = function (evt) {
-                    console.log('ws closed!!' + evt.code)
-                };
-            } else {
-                console.log("WebSocket not supported");
+        
+		function receiveMessage(data){
+            var content =$(".msgbox").html();
+            if (data.username == myname){
+                content = content +"<font color='#c35a'>" +data.time 
+                +" &lt;" +data.username +"&gt;:" +"</font>";
+            }else if(data.username == "admin.tom"){
+                content = content +"<font color='red'>" +data.time 
+                +" &lt;admin-tom&gt;:" +"</font>";
+            }else{
+                content = content +data.time 
+                +" &lt;"+ data.username +"&gt;:";
             }
+            if (data.type=="get_room_ok"){
+            	content += "<br>&nbsp&nbsp&nbsp&nbsp you can share this link for others<a href=http://"
+						  + window.location.host+"/join?roomid=" + data.value
+						  +"> http://" +window.location.host+"/join?roomid=" + data.value
+						  +"</a><br/>";
+            }else
+            {
+            	content += "<br>&nbsp&nbsp&nbsp&nbsp"+data.value +"<br/>";
+            }
+            if (!currentPage){
+            	top.document.title = "[New Msg] "+data.value;
+            	if (timerID == null){
+            		startRoll();
+            	}
+            }
+            $(".msgbox").html(content);
+           
+            mai = document.getElementById('msgbox');
+            mai.scrollTop=mai.scrollHeight;		
+		}              
+        $(document).ready(function(){
+		    var chatArea = document.getElementById("chat_area");
+		
+		    var lv = document.getElementById("localVideo");
+		    var rv = document.getElementById("remoteVideo1");
+	
+		    var rtc = new WebRTCO();
+		
+		    rtc.setDebug(true);
+		    rtc.setCallBackReceiveChatMessage(receiveMessage);
+		    
+		    var ws_url = "ws://" + window.location.host;
+		    rtc.initialize(ws_url + req,lv, rv);
 
-            $('form').submit(function(event){
+            $('.sendChat').click(function(event){
                 if (myname=='' || myname==undefined || $("#chat_content").val() == ''){
                     return;
                 }
                 console.log("send: "+ $("#chat_content").val());
                 msg = $("#chat_content").val();
-                
-                ws.send(JSON.stringify({type:"CHATMSG",value:msg}));
+                rtc.chatSendMessage(msg);
                 $("#chat_content").val("");
                 return false;
             });
@@ -121,7 +110,7 @@
 		    text = top.document.title;
 		    top.document.title=text.substring(1,text.length)+text.substring(0,1)
 		    text=top.document.title.substring(0,text.length)
-		}        
+		}  
         </script>
     </head>
     <body>
@@ -137,20 +126,30 @@
             </ul>
         </div>
         <div class="container">
-            Websocket Chat Test (Please Use Latest Chrome | FireFox).
+		    <div class="row">
+		        <div class="span4" id="div_video_local">
+		            <video width="100%" height="100%" autoplay="autoplay" id="localVideo" muted="true"/>
+		        </div>
+		        <div class="span2"></div>
+		        <div class="span4" id="div_video_remote">
+		            <video width="100%" height="100%" autoplay="autoplay" id="remoteVideo1"/>
+		        </div>
+		    </div>
             <form class="row" id="message_form">
                 <div class="span10">
-                    
                     <div class="well align-center msgbox" id="msgbox">
                     </div>
 
                     <div class="well align-center">
                         <input type="text" id="chat_content" class="input-medium search-query">
-                        <input type="submit" class="btn" value="Send">
+                        <input type="submit" class="btn sendChat" value="Send">
                     </div>
                 </div>
             </form>
         </div>
+<div class="container">
+   
+</div>
         <div class="footer container">
             <p>
                 &Copyright by lino.chao@gmail.com
