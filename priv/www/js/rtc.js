@@ -116,16 +116,18 @@ var WebRTCO = function() {
         clog('Channel opened...');
         channelReady = true;
 
-/*        
-        if(location.search.substring(1,5) == "roomname") {
-            room = location.search.substring(6);
-            sendMessage({"type" : "ENTERROOM", "value" : room});
+        
+        if(location.search.substring(1,7) == "roomid") {
+            roomId = location.search.substring(8);
+            //sendMessage({"type" : "ENTERROOM", "value" : room});
+            clog("==join room: "+ roomId);
             initiator = true;
         } else {
-            sendMessage({"type" : "GETROOM", "value" : ""});
-            initiator = false;
+            //sendMessage({"type" : "GETROOM", "value" : ""});
+            clog("==room hoster==");
+        	initiator = false;
         }
- */
+ 
         doGetUserMedia();
     };
 
